@@ -232,12 +232,25 @@ class AgentsPanel(ctk.CTkFrame):
             text_color="#c9d1d9",
         ).pack(side="left", padx=16, pady=16)
 
+        self._reload_btn = ctk.CTkButton(
+            lhdr,
+            text="Reload",
+            width=72,
+            height=28,
+            font=ctk.CTkFont(size=11),
+            fg_color="#21262d",
+            hover_color="#30363d",
+            text_color="#c9d1d9",
+            command=self._reload_agents,
+        )
+        self._reload_btn.pack(side="right", padx=(0, 8), pady=14)
+
         self._count_lbl = ctk.CTkLabel(
             lhdr, text="0",
             font=ctk.CTkFont(size=11),
             text_color="#7c8c96",
         )
-        self._count_lbl.pack(side="right", padx=16)
+        self._count_lbl.pack(side="right", padx=(0, 12))
 
         # Instructions
         ctk.CTkLabel(
@@ -315,3 +328,37 @@ class AgentsPanel(ctk.CTkFrame):
             text=f"{n} agent{'s' if n > 1 else ''}",
             text_color="#00d4ff" if n > 0 else "#7c8c96",
         )
+
+    def _reload_agents(self):
+        selected = self._manager.selected
+        selected_id = selected.id if selected else None
+
+        for item in list(self._items.values()):
+            item.destroy()
+        self._items.clear()
+
+        agents = self._manager.get_agents()
+        if not agents:
+            self._placeholder.pack(expand=True, pady=60)
+            self._manager.selected = None
+            self._detail._build_empty()
+            self._update_count()
+            return
+
+        self._placeholder.pack_forget()
+
+        sorted_agents = sorted(agents, key=lambda a: (a.hostname or "", a.ip or ""))
+        for agent in sorted_agents:
+            item = AgentItem(self._scroll, agent, self._select)
+            item.pack(fill="x", pady=4)
+            self._items[agent.id] = item
+
+        if selected_id and selected_id in self._items:
+            selected_agent = next((a for a in sorted_agents if a.id == selected_id), None)
+            if selected_agent:
+                self._select(selected_agent)
+        else:
+            self._manager.selected = None
+            self._detail._build_empty()
+
+        self._update_count()

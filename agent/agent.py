@@ -8,6 +8,7 @@ Usage:
 """
 import argparse
 import base64
+import faulthandler
 import hashlib
 import json
 import logging
@@ -45,6 +46,11 @@ logging.basicConfig(
     datefmt="%H:%M:%S",
 )
 log = logging.getLogger("agent")
+
+try:
+    faulthandler.enable(all_threads=True)
+except Exception:
+    log.warning("faulthandler indisponible.")
 
 DEFAULT_HOST = "127.0.0.1"
 DEFAULT_PORT = 32000

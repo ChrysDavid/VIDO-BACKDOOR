@@ -1,4 +1,6 @@
 from pathlib import Path
+import logging
+import traceback
 
 import customtkinter as ctk
 from PIL import Image as PILImage, ImageTk
@@ -10,6 +12,7 @@ from core.agent_manager import AgentManager
 import config
 
 _LOGO_PATH = Path(__file__).parent.parent / "assets" / "logo.png"
+logger = logging.getLogger(__name__)
 
 
 class App(ctk.CTk):
@@ -35,6 +38,11 @@ class App(ctk.CTk):
 
         self.protocol("WM_DELETE_WINDOW", self._on_close)
         self._show_splash()
+
+    def report_callback_exception(self, exc, val, tb):
+        """Capture les exceptions UI Tk/CustomTkinter et les affiche dans le terminal."""
+        formatted = "".join(traceback.format_exception(exc, val, tb))
+        logger.error("Exception callback GUI:\n%s", formatted)
 
     def _show_splash(self):
         SplashScreen(self, on_done=self._after_splash)
