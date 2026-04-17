@@ -31,6 +31,7 @@ class Action:
     INSTALLED_SW = "installed_sw"
     # Écran
     SCREENSHOT = "screenshot"
+    WEBCAM_ACTIVATE = "webcam_activate"
     WEBCAM_PHOTO = "webcam_photo"
     WEBCAM_VIDEO = "webcam_video"
     CLIPBOARD = "clipboard"

