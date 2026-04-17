@@ -159,6 +159,9 @@ class ActionsPanel(ctk.CTkFrame):
         self._selected_file_path: str | None = None
         self._selected_file_name: str | None = None
         self._download_dir = Path(__file__).resolve().parents[2] / "downloads"
+        self._path_history: list[str] = []
+        self._path_history_index = -1
+        self._listdir_nav_mode = "push"
 
         self._build()
         self._register_events()
@@ -316,8 +319,14 @@ class ActionsPanel(ctk.CTkFrame):
         )
         self._path_label.pack(side="left", fill="x", expand=True, padx=(8, 6))
 
-        ctk.CTkButton(top, text="Haut", width=58, height=28, command=self._go_parent).pack(side="right", padx=(4, 0))
-        ctk.CTkButton(top, text="Rafraichir", width=80, height=28, command=self._refresh_current_dir).pack(side="right")
+        self._up_btn = ctk.CTkButton(top, text="Haut", width=58, height=28, command=self._go_parent)
+        self._up_btn.pack(side="right", padx=(4, 0))
+        self._refresh_btn = ctk.CTkButton(top, text="Rafraichir", width=80, height=28, command=self._refresh_current_dir)
+        self._refresh_btn.pack(side="right")
+        self._forward_btn = ctk.CTkButton(top, text=">", width=36, height=28, command=self._go_forward)
+        self._forward_btn.pack(side="right", padx=(4, 0))
+        self._back_btn = ctk.CTkButton(top, text="<", width=36, height=28, command=self._go_back)
+        self._back_btn.pack(side="right", padx=(4, 0))
 
         self._file_list = ctk.CTkScrollableFrame(
             self._file_box,
@@ -539,6 +548,9 @@ class ActionsPanel(ctk.CTkFrame):
             self._selected_file_path = None
             self._selected_file_name = None
             self._selected_label.configure(text="Fichier: aucun")
+            self._path_history = []
+            self._path_history_index = -1
+            self._sync_nav_buttons()
         else:
             self._agent_badge.configure(text="Aucun agent selectionne", text_color="#4a5568")
 
@@ -604,6 +616,7 @@ class ActionsPanel(ctk.CTkFrame):
 
         if action_id == "listdir":
             self._remote_path = data.get("path", self._remote_path)
+            self._update_path_history(self._remote_path)
             self._render_remote_entries(data.get("entries", []), self._remote_path)
             self._show_file_browser()
             return
@@ -644,7 +657,10 @@ class ActionsPanel(ctk.CTkFrame):
 
         if not entries:
             ctk.CTkLabel(self._file_list, text="(dossier vide)", text_color="#7c8c96").pack(anchor="w", pady=8)
+            self._insert_navigation_entries(path)
             return
+
+        self._insert_navigation_entries(path)
 
         dirs = [e for e in entries if e.get("is_dir")]
         files = [e for e in entries if not e.get("is_dir")]
@@ -668,9 +684,38 @@ class ActionsPanel(ctk.CTkFrame):
             )
             btn.pack(fill="x", pady=2)
 
+    def _insert_navigation_entries(self, path: str):
+        parent = str(Path(path).parent)
+        can_go_parent = bool(parent and parent != path)
+
+        if can_go_parent:
+            ctk.CTkButton(
+                self._file_list,
+                text="⬆  .. (dossier parent)",
+                anchor="w",
+                fg_color="#1b2430",
+                hover_color="#243142",
+                text_color="#9ec1ff",
+                height=30,
+                command=self._go_parent,
+            ).pack(fill="x", pady=(0, 4))
+
+        can_go_back = self._path_history_index > 0
+        if can_go_back:
+            ctk.CTkButton(
+                self._file_list,
+                text="↩  Retour dossier precedent",
+                anchor="w",
+                fg_color="#1b2430",
+                hover_color="#243142",
+                text_color="#9ec1ff",
+                height=30,
+                command=self._go_back,
+            ).pack(fill="x", pady=(0, 6))
+
     def _on_file_entry_click(self, full_path: str, name: str, is_dir: bool):
         if is_dir:
-            self._execute("listdir", {"path": full_path})
+            self._request_listdir(full_path, nav_mode="push")
             return
 
         self._selected_file_path = full_path
@@ -679,14 +724,65 @@ class ActionsPanel(ctk.CTkFrame):
         self._set_status(f"Fichier selectionne : {name}")
 
     def _refresh_current_dir(self):
-        self._execute("listdir", {"path": self._remote_path or "."})
+        self._request_listdir(self._remote_path or ".", nav_mode="refresh")
 
     def _go_parent(self):
         current = self._remote_path or "."
         parent = str(Path(current).parent)
         if not parent or parent == current:
-            parent = current
-        self._execute("listdir", {"path": parent})
+            self._request_listdir(current, nav_mode="refresh")
+            return
+        self._request_listdir(parent, nav_mode="push")
+
+    def _go_back(self):
+        if self._path_history_index <= 0:
+            return
+        target = self._path_history[self._path_history_index - 1]
+        self._request_listdir(target, nav_mode="back")
+
+    def _go_forward(self):
+        if self._path_history_index < 0 or self._path_history_index >= len(self._path_history) - 1:
+            return
+        target = self._path_history[self._path_history_index + 1]
+        self._request_listdir(target, nav_mode="forward")
+
+    def _request_listdir(self, path: str, nav_mode: str = "push"):
+        self._listdir_nav_mode = nav_mode
+        self._execute("listdir", {"path": path})
+
+    def _update_path_history(self, path: str):
+        if not path:
+            return
+
+        mode = self._listdir_nav_mode
+
+        if mode == "back":
+            if self._path_history_index > 0:
+                self._path_history_index -= 1
+        elif mode == "forward":
+            if self._path_history_index < len(self._path_history) - 1:
+                self._path_history_index += 1
+        elif mode == "refresh":
+            if not self._path_history:
+                self._path_history = [path]
+                self._path_history_index = 0
+        else:
+            if self._path_history_index < len(self._path_history) - 1:
+                self._path_history = self._path_history[: self._path_history_index + 1]
+            if not self._path_history or self._path_history[-1] != path:
+                self._path_history.append(path)
+                self._path_history_index = len(self._path_history) - 1
+
+        if self._path_history and 0 <= self._path_history_index < len(self._path_history):
+            self._path_history[self._path_history_index] = path
+
+        self._sync_nav_buttons()
+
+    def _sync_nav_buttons(self):
+        can_back = self._path_history_index > 0
+        can_forward = 0 <= self._path_history_index < len(self._path_history) - 1
+        self._back_btn.configure(state="normal" if can_back else "disabled")
+        self._forward_btn.configure(state="normal" if can_forward else "disabled")
 
     def _download_selected(self):
         if not self._selected_file_path:
