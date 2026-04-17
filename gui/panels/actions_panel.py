@@ -2,6 +2,9 @@
 Panel d'actions avec execution distante et explorateur de fichiers graphique.
 """
 import base64
+import os
+import subprocess
+import sys
 from io import BytesIO
 from datetime import datetime
 from pathlib import Path
@@ -407,8 +410,23 @@ class ActionsPanel(ctk.CTkFrame):
         if card:
             card.set_running(True)
 
+        params = params or {}
+        if action_id == "webcam_video":
+            raw_duration = str(params.get("duration", "")).strip()
+            if raw_duration == "":
+                raw_duration = "6"
+            try:
+                duration = int(raw_duration)
+            except (TypeError, ValueError):
+                self._set_status("Duree invalide: entrez un nombre entre 2 et 20.", error=True)
+                if card:
+                    card.set_running(False)
+                return
+            duration = max(2, min(duration, 20))
+            params = {"duration": duration, "fps": 10}
+
         self._set_status(f"Execution : {action_id}...")
-        dispatch = self._manager.execute(action_id, params or {})
+        dispatch = self._manager.execute(action_id, params)
         if not dispatch.ok:
             self._set_status("Impossible d'envoyer la commande.", error=True)
             if card:
@@ -610,7 +628,9 @@ class ActionsPanel(ctk.CTkFrame):
                 return
 
         if action_id == "webcam_video":
-            self._save_remote_file(data, default_name="webcam_video.mp4", title="Video webcam")
+            saved = self._save_remote_file(data, default_name="webcam_video.mp4", title="Video webcam")
+            if saved:
+                self._open_local_file(saved)
             return
 
         if action_id == "dl":
@@ -805,11 +825,11 @@ class ActionsPanel(ctk.CTkFrame):
             return
         self._execute("file_hash", {"file": self._selected_file_path})
 
-    def _save_remote_file(self, data: dict, default_name: str, title: str):
+    def _save_remote_file(self, data: dict, default_name: str, title: str) -> Path | None:
         b64 = data.get("data")
         if not b64:
             self._show_text("Reponse sans donnees de fichier.", title)
-            return
+            return None
 
         filename = data.get("filename") or default_name
         self._download_dir.mkdir(parents=True, exist_ok=True)
@@ -822,7 +842,11 @@ class ActionsPanel(ctk.CTkFrame):
             target = self._download_dir / f"{stem}_{i}{suffix}"
             i += 1
 
-        raw = base64.b64decode(b64)
+        try:
+            raw = base64.b64decode(b64)
+        except Exception as e:
+            self._show_text(f"Erreur decodage fichier distant: {e}", title)
+            return None
         target.write_bytes(raw)
 
         info = [
@@ -834,6 +858,19 @@ class ActionsPanel(ctk.CTkFrame):
         if "duration_sec" in data:
             info.append(f"Duree: {data.get('duration_sec')}s")
         self._show_text("\n".join(info), title)
+        return target
+
+    def _open_local_file(self, path: Path):
+        try:
+            if sys.platform.startswith("win"):
+                os.startfile(str(path))
+            elif sys.platform == "darwin":
+                subprocess.Popen(["open", str(path)])
+            else:
+                subprocess.Popen(["xdg-open", str(path)])
+            self._set_status(f"Video enregistree et ouverte: {path.name}")
+        except Exception:
+            self._set_status(f"Video enregistree: {path}", error=False)
 
     @staticmethod
     def _human_size(size: int) -> str:

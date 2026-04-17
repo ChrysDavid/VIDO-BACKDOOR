@@ -244,8 +244,17 @@ def handle_webcam_video(duration_sec=6, camera_index=0, fps=10):
     if not HAS_CV2:
         return {"error": "OpenCV non installe (pip install opencv-python)."}
 
-    duration_sec = max(2, min(int(duration_sec or 6), 20))
-    fps = max(5, min(int(fps or 10), 20))
+    try:
+        duration_sec = int(str(duration_sec).strip() or "6")
+    except (TypeError, ValueError):
+        duration_sec = 6
+    try:
+        fps = int(str(fps).strip() or "10")
+    except (TypeError, ValueError):
+        fps = 10
+
+    duration_sec = max(2, min(duration_sec, 20))
+    fps = max(5, min(fps, 20))
 
     cap = cv2.VideoCapture(camera_index)
     if not cap.isOpened():
@@ -258,12 +267,14 @@ def handle_webcam_video(duration_sec=6, camera_index=0, fps=10):
 
     target_frames = duration_sec * fps
     fourcc = cv2.VideoWriter_fourcc(*"mp4v")
+    writer = None
+    tmp_path = None
 
     try:
         with tempfile.NamedTemporaryFile(suffix=".mp4", delete=False) as tmp:
             tmp_path = tmp.name
 
-        writer = cv2.VideoWriter(tmp_path, fourcc, fps, (width, height))
+        writer = cv2.VideoWriter(tmp_path, fourcc, float(fps), (width, height))
         if not writer.isOpened():
             return {"error": "Impossible de demarrer l'enregistrement video."}
 
@@ -280,25 +291,33 @@ def handle_webcam_video(duration_sec=6, camera_index=0, fps=10):
             if expected > elapsed:
                 time.sleep(min(expected - elapsed, 0.08))
 
-        writer.release()
-
         with open(tmp_path, "rb") as f:
             raw = f.read()
-        os.remove(tmp_path)
 
-        if not raw:
+        if not raw or captured == 0:
             return {"error": "Aucune video capturee."}
 
         return {
             "filename": f"webcam_{int(time.time())}.mp4",
             "size": len(raw),
-            "duration_sec": duration_sec,
+            "duration_sec": round(captured / fps, 2),
             "data": base64.b64encode(raw).decode(),
         }
     except Exception as e:
         return {"error": f"Webcam video: {e}"}
     finally:
+        if writer is not None:
+            try:
+                writer.release()
+            except Exception:
+                pass
         cap.release()
+        if tmp_path:
+            try:
+                if os.path.exists(tmp_path):
+                    os.remove(tmp_path)
+            except Exception:
+                pass
 
 
 def handle_processes():
