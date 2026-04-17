@@ -4,9 +4,20 @@ Fait le lien entre le serveur réseau et l'interface graphique.
 """
 import threading
 from typing import Callable
+from dataclasses import dataclass
+from datetime import datetime
 
 from .server import Server, AgentInfo
 from .protocol import MsgType
+
+
+@dataclass
+class CommandDispatch:
+    ok: bool
+    request_id: str | None = None
+    agent_id: str | None = None
+    action: str | None = None
+    sent_at: str | None = None
 
 
 class AgentManager:
@@ -17,6 +28,8 @@ class AgentManager:
 
         self._response_handlers: list[Callable] = []
         self._selection_handlers: list[Callable] = []
+        self._pending_commands: dict[str, dict] = {}
+        self._pending_lock = threading.Lock()
 
         server.on("message_received", self._on_message)
         server.on("agent_disconnected", self._on_disconnected)
@@ -47,11 +60,32 @@ class AgentManager:
     # Commands
     # ------------------------------------------------------------------
 
-    def execute(self, action: str, params: dict = None, agent: AgentInfo = None) -> bool:
+    def execute(self, action: str, params: dict = None, agent: AgentInfo = None) -> CommandDispatch:
         target = agent or self.selected
         if not target:
-            return False
-        return self.server.send_command(target.id, action, params)
+            return CommandDispatch(ok=False)
+
+        ok, request_id = self.server.send_command(target.id, action, params)
+        if not ok or not request_id:
+            return CommandDispatch(ok=False, agent_id=target.id, action=action)
+
+        sent_at = datetime.utcnow().isoformat()
+        with self._pending_lock:
+            self._pending_commands[request_id] = {
+                "request_id": request_id,
+                "agent_id": target.id,
+                "action": action,
+                "sent_at": sent_at,
+                "params": params or {},
+            }
+
+        return CommandDispatch(
+            ok=True,
+            request_id=request_id,
+            agent_id=target.id,
+            action=action,
+            sent_at=sent_at,
+        )
 
     def get_agents(self) -> list[AgentInfo]:
         return self.server.get_agents()
@@ -63,7 +97,20 @@ class AgentManager:
     def on_response(self, cb: Callable):
         self._response_handlers.append(cb)
 
+    def get_pending(self, request_id: str) -> dict | None:
+        with self._pending_lock:
+            return self._pending_commands.get(request_id)
+
     def _on_message(self, agent: AgentInfo, msg: dict):
+        msg_id = msg.get("id")
+        msg["meta"] = {
+            "pending": None,
+        }
+        if msg.get("type") == MsgType.RESPONSE and msg_id:
+            with self._pending_lock:
+                pending = self._pending_commands.pop(msg_id, None)
+            msg["meta"]["pending"] = pending
+
         for cb in list(self._response_handlers):
             try:
                 cb(agent, msg)

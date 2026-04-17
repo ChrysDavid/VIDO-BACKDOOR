@@ -44,6 +44,7 @@ DEFAULT_PORT = 32000
 AUTH_TOKEN = "vido-lab-2024"
 RECONNECT_DELAY = 8
 IS_WIN = platform.system() == "Windows"
+MAX_OUTPUT_CHARS = 120000
 
 
 # -----------------------------------------------------------------------
@@ -113,6 +114,13 @@ def run_ps(cmd, timeout=20):
         return "[powershell non disponible sur ce système]"
     except Exception as e:
         return f"[Erreur PowerShell: {e}]"
+
+
+def _truncate_output(text, max_chars=MAX_OUTPUT_CHARS):
+    if len(text) <= max_chars:
+        return text, False
+    suffix = f"\n\n[... sortie tronquee a {max_chars} caracteres ...]"
+    return text[:max_chars] + suffix, True
 
 
 # -----------------------------------------------------------------------
@@ -471,18 +479,80 @@ def handle_event_logs():
 
 def handle_shell(cmd):
     if not cmd.strip():
-        return {"output": ""}
+        return {
+            "output": "",
+            "exit_code": 0,
+            "duration_ms": 0,
+            "cwd": os.getcwd(),
+            "shell": "none",
+        }
+
+    started = time.perf_counter()
+    shell_name = "cmd"
     try:
-        r = subprocess.run(
-            cmd, shell=True, capture_output=True, text=True,
-            timeout=30, errors="replace", cwd=os.getcwd(),
-        )
+        if IS_WIN:
+            shell_name = "powershell"
+            r = subprocess.run(
+                [
+                    "powershell",
+                    "-NoProfile",
+                    "-NonInteractive",
+                    "-ExecutionPolicy",
+                    "Bypass",
+                    "-Command",
+                    cmd,
+                ],
+                shell=False,
+                capture_output=True,
+                text=True,
+                timeout=45,
+                errors="replace",
+                cwd=os.getcwd(),
+            )
+        else:
+            shell_name = "sh"
+            r = subprocess.run(
+                ["/bin/sh", "-lc", cmd],
+                shell=False,
+                capture_output=True,
+                text=True,
+                timeout=45,
+                errors="replace",
+                cwd=os.getcwd(),
+            )
+
         out = r.stdout + r.stderr
-        return {"output": out if out.strip() else "(commande exécutée sans sortie)"}
+        output = out if out.strip() else "(commande executée sans sortie)"
+        output, truncated = _truncate_output(output)
+        duration_ms = int((time.perf_counter() - started) * 1000)
+        return {
+            "output": output,
+            "exit_code": r.returncode,
+            "duration_ms": duration_ms,
+            "cwd": os.getcwd(),
+            "shell": shell_name,
+            "truncated": truncated,
+        }
     except subprocess.TimeoutExpired:
-        return {"output": "[Timeout >30s]"}
+        duration_ms = int((time.perf_counter() - started) * 1000)
+        return {
+            "output": "[Timeout >45s]",
+            "exit_code": -1,
+            "duration_ms": duration_ms,
+            "cwd": os.getcwd(),
+            "shell": shell_name,
+            "truncated": False,
+        }
     except Exception as e:
-        return {"output": f"[Erreur: {e}]"}
+        duration_ms = int((time.perf_counter() - started) * 1000)
+        return {
+            "output": f"[Erreur: {e}]",
+            "exit_code": -1,
+            "duration_ms": duration_ms,
+            "cwd": os.getcwd(),
+            "shell": shell_name,
+            "truncated": False,
+        }
 
 
 def handle_cd(path):

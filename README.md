@@ -84,11 +84,28 @@ python agent.py --host 192.168.1.10 --port 32000
 Modifier `VidoAdmin/config.py` :
 
 ```python
-HOST       = "0.0.0.0"   # Interface d'écoute du serveur
-PORT       = 32000
+SERVER_HOST = "0.0.0.0"   # Interface d'ecoute du serveur
+SERVER_PORT = 32000
 AUTH_TOKEN = "vido-lab-2024"
 MAX_AGENTS = 50
 ```
+
+## Execution distante des commandes (admin -> agent)
+
+Le terminal admin n'execute pas localement les commandes shell.
+Le flux est le suivant:
+
+1. L'interface admin envoie une commande `COMMAND` a l'agent selectionne, avec un identifiant unique.
+2. L'agent execute la commande sur sa propre machine (PowerShell sous Windows, shell POSIX sous Linux/macOS).
+3. L'agent renvoie une `RESPONSE` avec:
+    - `output` (stdout/stderr)
+    - `exit_code`
+    - `duration_ms`
+    - `cwd`
+    - `shell`
+4. L'admin affiche le retour dans l'interface en le correlant a la requete envoyee.
+
+Ce mecanisme garantit que les commandes lancees depuis la page admin sont executees sur la machine de l'agent, puis retournees dans l'interface admin.
 
 ---
 

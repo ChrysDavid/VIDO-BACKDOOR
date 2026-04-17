@@ -169,6 +169,7 @@ class ActionsPanel(ctk.CTkFrame):
         self._cards: dict[str, ActionCard] = {}
         self._active_cat = "system"
         self._last_screenshot: Image.Image | None = None
+        self._pending_by_action: dict[str, str] = {}
         self._build()
         self._register_events()
 
@@ -362,11 +363,15 @@ class ActionsPanel(ctk.CTkFrame):
             card.set_running(True)
 
         self._set_status(f"Exécution : {action_id}...")
-        ok = self._manager.execute(action_id, params or {})
-        if not ok:
+        dispatch = self._manager.execute(action_id, params or {})
+        if not dispatch.ok:
             self._set_status("Impossible d'envoyer la commande.", error=True)
             if card:
                 card.set_running(False)
+            return
+
+        if dispatch.request_id:
+            self._pending_by_action[action_id] = dispatch.request_id
 
     def _ask_param(self, title: str, prompt: str, callback):
         popup = ctk.CTkToplevel(self)
@@ -481,8 +486,19 @@ class ActionsPanel(ctk.CTkFrame):
     def _on_response(self, agent: AgentInfo, msg: dict):
         if msg.get("type") != MsgType.RESPONSE:
             return
+
+        selected = self._manager.selected
+        if not selected or agent.id != selected.id:
+            return
+
         action_id = msg.get("action", "")
         data = msg.get("data", {})
+        pending_meta = (msg.get("meta") or {}).get("pending")
+
+        expected_req_id = self._pending_by_action.get(action_id)
+        incoming_req_id = msg.get("id")
+        if expected_req_id and incoming_req_id and expected_req_id != incoming_req_id:
+            return
 
         # Trouver le label de l'action
         action_label = action_id
@@ -494,6 +510,8 @@ class ActionsPanel(ctk.CTkFrame):
 
         def update():
             try:
+                if pending_meta is None:
+                    self._set_status("Reponse hors suivi (ancienne requete ou redemarrage).")
                 self._update_result(action_id, action_label, data)
             except Exception as e:
                 import traceback
@@ -503,6 +521,7 @@ class ActionsPanel(ctk.CTkFrame):
         self.after(0, update)
 
     def _update_result(self, action_id: str, action_label: str, data: dict):
+        self._pending_by_action.pop(action_id, None)
         card = self._cards.get(action_id)
         if card:
             card.set_running(False)
@@ -523,6 +542,16 @@ class ActionsPanel(ctk.CTkFrame):
         else:
             if "output" in data:
                 text = data["output"]
+                if action_id == "shell":
+                    meta = []
+                    if "exit_code" in data:
+                        meta.append(f"exit={data['exit_code']}")
+                    if "duration_ms" in data:
+                        meta.append(f"duree={data['duration_ms']}ms")
+                    if "shell" in data:
+                        meta.append(f"shell={data['shell']}")
+                    if meta:
+                        text = "[exec] " + " | ".join(meta) + "\n\n" + text
             elif "cwd" in data:
                 text = f"Répertoire : {data['cwd']}"
             elif "entries" in data:

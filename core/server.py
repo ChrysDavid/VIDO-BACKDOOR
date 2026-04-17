@@ -1,6 +1,7 @@
 import socket
 import threading
 import logging
+from datetime import datetime
 from dataclasses import dataclass, field
 from typing import Callable
 
@@ -87,18 +88,29 @@ class Server:
         with self._lock:
             return self._agents.get(agent_id)
 
-    def send_command(self, agent_id: str, action: str, params: dict = None) -> bool:
+    def send_command(self, agent_id: str, action: str, params: dict = None) -> tuple[bool, str | None]:
         agent = self.get_agent(agent_id)
         if not agent or not agent.connected:
-            return False
+            return False, None
         msg = make_msg(MsgType.COMMAND, action=action, data=params or {})
         try:
             with agent._lock:
                 send_msg(agent.sock, msg)
-            return True
+            return True, msg.get("id")
         except Exception as e:
             logger.error(f"Erreur envoi commande à {agent_id}: {e}")
-            return False
+            return False, None
+
+    def build_audit_entry(self, agent: AgentInfo, action: str, request_id: str, params: dict | None = None) -> dict:
+        return {
+            "request_id": request_id,
+            "timestamp": datetime.utcnow().isoformat(),
+            "agent_id": agent.id,
+            "agent_hostname": agent.hostname,
+            "agent_ip": agent.ip,
+            "action": action,
+            "params": params or {},
+        }
 
     # ------------------------------------------------------------------
     # Internal

